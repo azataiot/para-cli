@@ -1,46 +1,69 @@
-# Knowledge Management System Structure
+# PARA CLI
 
-## Folder Tree
+A command-line tool for managing your personal knowledge using the PARA method (Projects, Areas, Resources, Archive).
 
-```
-.
-├── 00 Inbox
-├── 01 Projects
-│   └── WQU-SM-M4
-├── 02 Areas
-├── 03 Resources
-│   ├── Alfred
-│   └── macOS
-└── 04 Archives
+## Installation
 
-9 directories, 0 files
+```bash
+pip install para-cli
 ```
 
-## Active Folders
+## Usage
 
-### 1. Inbox
-Temporary storage for new, unprocessed information.
+### Initialize PARA Structure
 
-### 2. Projects
-Active initiatives with defined goals and timelines.
+Create the basic PARA directory structure:
 
-### 3. Areas
-Self-created content organized by responsibility domains:
-- Personal knowledge base
-- Created documentation
-- Original content
+```bash
+para init
+```
 
-### 4. Resources
-Reference materials from external sources:
-- Online tutorials
-- Third-party documentation
-- Learning materials
-- Media content
+You can also specify a custom location:
 
-## Archived Content
+```bash
+para init --path ~/Documents/PARA
+```
 
-### Archives
-Completed or inactive items from other categories:
-- Finished projects
-- Outdated areas
-- Obsolete resources
+### Check Status
+
+View the current status of your PARA system:
+
+```bash
+para status
+```
+
+### Add New Items
+
+Add a new item to any PARA category:
+
+```bash
+para add "New Project" projects
+para add "Health" areas
+para add "Programming Books" resources
+para add "Old Project 2023" archive
+```
+
+## PARA Method Overview
+
+The PARA method is a simple but powerful organizational system:
+
+- **Projects**: Short-term efforts that you're currently working on
+- **Areas**: Long-term responsibilities you want to manage
+- **Resources**: Topics or themes of ongoing interest
+- **Archive**: Inactive items from the other categories
+
+## Development
+
+Requirements:
+- Python 3.13+
+- Dependencies: typer, rich
+
+To contribute:
+1. Clone the repository
+2. Install dependencies: `pip install -e .`
+3. Make your changes
+4. Submit a pull request
+
+## License
+
+MIT License

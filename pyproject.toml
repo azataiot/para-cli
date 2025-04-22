@@ -1,10 +1,23 @@
 [project]
 name = "para-cli"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "A command line tool for managing your PARA system"
+authors = []
 requires-python = ">=3.13"
 dependencies = [
-    "rich>=14.0.0",
-    "typer>=0.15.2",
+    "typer",
+    "rich",
+    "textual",
 ]
+
+[project.optional-dependencies]
+interactive = [
+    "textual",
+]
+
+[project.scripts]
+para = "para_cli.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
