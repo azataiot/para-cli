@@ -304,83 +304,59 @@ class QuickSearchModal(ModalScreen[None]):
             self.post_message(self.ResultAction(self.results[self.selected_index], "open"))
             self.app.pop_screen()
 
-class NewItemModal(ModalScreen[Optional[Tuple[str, bool]]]):
+class CreateItemData:
+    """Data class for item creation."""
+    def __init__(self, name: str, path: Path, is_folder: bool):
+        self.name = name
+        self.path = path
+        self.is_folder = is_folder
+
+class NewItemModal(ModalScreen):
     """Modal for creating new items."""
 
-    def __init__(self, is_folder: bool = True, default_name: str = ""):
+    class ItemCreated(Message):
+        """Message sent when an item should be created."""
+        def __init__(self, name: str, item_type: str) -> None:
+            self.name = name
+            self.item_type = item_type
+            super().__init__()
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("enter", "submit", "Submit"),
+    ]
+
+    def __init__(self, item_type: str):
         super().__init__()
-        self.is_folder = is_folder
-        self.default_name = default_name
-        self.can_dismiss = False  # Prevent auto-dismissal
+        self.item_type = item_type
 
     def compose(self) -> ComposeResult:
         yield Container(
-            Label(f"Create New {'Folder' if self.is_folder else 'File'}", id="new-item-title"),
-            Input(placeholder="Enter name and press Enter...", value=self.default_name, id="new-item-name"),
+            Label(f"Create New {self.item_type}", id="new-item-title"),
+            Input(placeholder=f"Enter {self.item_type.lower()} name...", id="new-item-name"),
             classes="new-item-container",
         )
 
     def on_mount(self) -> None:
         """Focus the input when mounted."""
-        input_widget = self.query_one("#new-item-name", Input)
-        input_widget.focus()
-        self.notify("Modal mounted")
+        self.query_one("#new-item-name", Input).focus()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle Enter key in input."""
-        self.notify("Input submitted")
-        name = event.value.strip()
+    def action_submit(self) -> None:
+        """Handle submission."""
+        name = self.query_one("#new-item-name", Input).value.strip()
         if name:
-            self.notify(f"Submitting name: {name}")
-            # Temporarily allow dismissal for our explicit submission
-            self.can_dismiss = True
-            self.dismiss((name, self.is_folder))
+            self.post_message(self.ItemCreated(name, self.item_type))
+            self.app.pop_screen()
         else:
             self.notify("Please enter a name", severity="error")
 
-    def on_key(self, event: events.Key) -> None:
-        """Handle key events."""
-        # Only allow Enter (handled by on_input_submitted) and Escape
-        if event.key == "escape":
-            self.notify("Escape pressed - cancelling")
-            # Temporarily allow dismissal for explicit cancellation
-            self.can_dismiss = True
-            self.dismiss(None)
-        # Prevent any other keys from doing anything unexpected
-        event.prevent_default()
-        event.stop()
+    def action_cancel(self) -> None:
+        """Handle cancellation."""
+        self.app.pop_screen()
 
-    def on_click(self, event: events.Click) -> None:
-        """Prevent ANY clicks from dismissing the modal."""
-        event.prevent_default()
-        event.stop()
-
-    def on_screen_suspend(self) -> None:
-        """Prevent suspension from dismissing."""
-        pass
-
-    def on_screen_resume(self) -> None:
-        """Handle screen resume."""
-        self.notify("Modal resumed")
-        # Ensure we're still preventing dismissal after resume
-        self.can_dismiss = False
-
-    async def action_dismiss(self) -> None:
-        """Override dismiss action to prevent any other dismissal attempts."""
-        if not self.can_dismiss:
-            self.notify("Prevented auto-dismissal attempt")
-            return
-        await super().action_dismiss()
-
-    def on_mouse_down(self, event: events.MouseDown) -> None:
-        """Prevent mouse clicks from doing anything."""
-        event.prevent_default()
-        event.stop()
-
-    def on_mouse_up(self, event: events.MouseUp) -> None:
-        """Prevent mouse releases from doing anything."""
-        event.prevent_default()
-        event.stop()
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input."""
+        self.action_submit()
 
 class ParaApp(App):
     """A Textual app to manage PARA system."""
@@ -700,6 +676,60 @@ class ParaApp(App):
         """Show search modal."""
         self.push_screen(QuickSearchModal())
 
+    def _get_creation_context(self, node: TreeNode) -> tuple[Path, bool]:
+        """Get the context for item creation."""
+        # Clean the label
+        label = str(node.label)
+        if " (" in label:
+            label = label.split(" (")[0]
+        
+        # Check if we're at category level
+        target_path = None
+        
+        # Direct category match
+        if label in CATEGORIES:
+            target_path = DEFAULT_PARA_ROOT / label
+            if target_path:
+                return target_path, True
+        else:
+            # Check for category with icon/prefix
+            clean_label = label.split(" ", 1)[1] if " " in label else label
+            for cat in CATEGORIES:
+                if clean_label == cat:
+                    target_path = DEFAULT_PARA_ROOT / cat
+                    if target_path:
+                        return target_path, True
+            
+        # Not a category, so we're creating a file
+        if self.current_path and self.current_path.exists():
+            target_path = self.current_path if self.current_path.is_dir() else self.current_path.parent
+            if target_path and target_path.exists():
+                return target_path, False
+            
+        raise ValueError("Invalid location for item creation")
+
+    async def _create_item(self, name: str, target_path: Path, is_folder: bool) -> None:
+        """Create a new item with the given data."""
+        try:
+            new_path = target_path / name
+            
+            if is_folder:
+                if not target_path.exists():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                new_path.mkdir(exist_ok=False)
+                self.notify(f"Created folder: {new_path}")
+            else:
+                new_path.touch(exist_ok=False)
+                self.notify(f"Created file: {new_path}")
+                
+            self.refresh_tree()
+            self.select_path(new_path)
+            
+        except FileExistsError:
+            self.notify(f"Error: {name} already exists", severity="error")
+        except Exception as e:
+            self.notify(f"Error creating {name}: {str(e)}", severity="error")
+
     async def action_new_item(self) -> None:
         """Create new item based on context."""
         try:
@@ -712,92 +742,31 @@ class ParaApp(App):
                 self.notify("No node selected", severity="error")
                 return
 
-            # Get the current node's label and clean it
-            label = str(tree.cursor_node.label)
-            if " (" in label:
-                label = label.split(" (")[0]
-            self.notify(f"Processing node: {label}")
-            
-            # Check if we're at a category level
-            is_category = False
-            category_name = None
-            
-            if label in CATEGORIES:
-                is_category = True
-                category_name = label
-                self.notify(f"Matched category exactly: {category_name}")
-            else:
-                clean_label = label.split(" ", 1)[1] if " " in label else label
-                for cat in CATEGORIES:
-                    clean_cat = cat.split(" ", 1)[1] if " " in cat else cat
-                    if clean_cat == clean_label:
-                        is_category = True
-                        category_name = cat
-                        self.notify(f"Found category in label: {category_name}")
-                        break
-            
-            if is_category and not category_name:
-                self.notify("Error: Could not determine category name", severity="error")
-                return
-                
-            should_create_folder = is_category
-            self.notify(f"Will create a {'folder' if should_create_folder else 'file'}")
-            
+            # Get creation context
             try:
-                modal = NewItemModal(is_folder=should_create_folder)
-                self.notify("Created modal instance")
-                result = await self.push_screen(modal)
-                self.notify(f"Got modal result: {result}")
-                
-                if result is not None:
-                    result_tuple = result if isinstance(result, tuple) else (str(result), True)
-                    name, is_folder = result_tuple
-                    self.notify(f"Creating item: {name} (folder: {is_folder})")
-                    
-                    try:
-                        if is_category and category_name:
-                            category_path = DEFAULT_PARA_ROOT / category_name
-                            self.notify(f"Using category path: {category_path}")
-                            
-                            if not category_path.exists():
-                                category_path.mkdir(parents=True, exist_ok=True)
-                            
-                            new_path = category_path / name
-                            self.notify(f"Creating at: {new_path}")
-                            new_path.mkdir(exist_ok=False)
-                            self.notify(f"Created folder: {new_path}")
-                            
-                            self.refresh_tree()
-                            self.select_path(new_path)
-                        else:
-                            parent_path = None
-                            if self.current_path and self.current_path.exists():
-                                parent_path = self.current_path if self.current_path.is_dir() else self.current_path.parent
-                            
-                            if not parent_path:
-                                self.notify("Error: Invalid parent directory", severity="error")
-                                return
-                                
-                            new_path = parent_path / name
-                            self.notify(f"Creating at: {new_path}")
-                            new_path.touch(exist_ok=False)
-                            self.notify(f"Created file: {new_path}")
-                            
-                            self.refresh_tree()
-                            self.select_path(new_path)
-                        
-                    except FileExistsError:
-                        self.notify(f"Error: {name} already exists", severity="error")
-                    except Exception as e:
-                        self.notify(f"Error creating {name}: {str(e)}", severity="error")
-                else:
-                    self.notify("Operation cancelled via Escape key")
-                    
-            except Exception as e:
-                self.notify(f"Modal error: {str(e)}", severity="error")
-            
+                target_path, is_folder = self._get_creation_context(tree.cursor_node)
+            except ValueError as e:
+                self.notify(str(e), severity="error")
+                return
+
+            # Show modal
+            item_type = "Folder" if is_folder else "File"
+            self.push_screen(NewItemModal(item_type))
+
         except Exception as e:
             self.notify(f"Unexpected error: {str(e)}", severity="error")
+
+    async def on_new_item_modal_item_created(self, message: NewItemModal.ItemCreated) -> None:
+        """Handle item creation from modal."""
+        try:
+            cursor_node = self.query_one(Tree).cursor_node
+            if not cursor_node:
+                self.notify("No location selected", severity="error")
+                return
+            target_path, is_folder = self._get_creation_context(cursor_node)
+            await self._create_item(message.name, target_path, is_folder)
+        except Exception as e:
+            self.notify(f"Error creating {message.name}: {str(e)}", severity="error")
 
     def action_delete(self) -> None:
         """Delete selected item."""

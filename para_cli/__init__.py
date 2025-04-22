@@ -2,7 +2,7 @@
 PARA CLI - A command line tool for managing your PARA Knowledge management system.
 """
 
-__version__ = "0.1.1" 
+__version__ = "0.1.2" 
 __author__ = "Azat"
 __email__ = "azataiot@gmail.com"
 __license__ = "MIT"
