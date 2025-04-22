@@ -3,3 +3,7 @@ PARA CLI - A command line tool for managing your PARA Knowledge management syste
 """
 
 __version__ = "0.1.0" 
+__author__ = "Azat"
+__email__ = "azataiot@gmail.com"
+__license__ = "MIT"
+__url__ = "https://github.com/azataiot/para-cli"
