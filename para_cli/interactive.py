@@ -5,11 +5,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import platform
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import time
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 from textual.widgets import Header, Footer, Tree, Static, Input, Label, Button, Select
 from textual.widgets.tree import TreeNode
 from textual import events
@@ -23,9 +23,9 @@ class ActionModal(ModalScreen[bool]):
     """Modal for confirming actions."""
 
     def __init__(self, title: str, message: str):
+        self.title: str = str(title)
+        self.message: str = str(message)
         super().__init__()
-        self.title = title
-        self.message = message
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -66,7 +66,8 @@ class MoveModal(ModalScreen[Optional[str]]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "move":
-            category = self.query_one("#category-select").value
+            select = self.query_one("#category-select", Select)
+            category = str(select.value) if select.value else None
             self.dismiss(category)
         else:
             self.dismiss(None)
@@ -203,7 +204,7 @@ class QuickSearchModal(ModalScreen[None]):
             self.selected_index = 0
             self._update_results_display()
         else:
-            self.query_one("#search-results").update("")
+            self.query_one("#search-results", Static).update("")
 
     def on_key(self, event: events.Key) -> None:
         """Handle key events."""
@@ -225,7 +226,7 @@ class QuickSearchModal(ModalScreen[None]):
     def _update_results_display(self) -> None:
         """Update the results display."""
         if not self.results:
-            self.query_one("#search-results").update("[dim]No matches found[/]")
+            self.query_one("#search-results", Static).update("[dim]No matches found[/]")
             return
 
         content = []
@@ -244,7 +245,7 @@ class QuickSearchModal(ModalScreen[None]):
         if len(self.results) > 10:
             content.append("[dim]... and more results[/]")
 
-        self.query_one("#search-results").update("\n".join(content))
+        self.query_one("#search-results", Static).update("\n".join(content))
 
     async def action_delete_result(self) -> None:
         """Delete the selected result."""
@@ -303,6 +304,84 @@ class QuickSearchModal(ModalScreen[None]):
             self.post_message(self.ResultAction(self.results[self.selected_index], "open"))
             self.app.pop_screen()
 
+class NewItemModal(ModalScreen[Optional[Tuple[str, bool]]]):
+    """Modal for creating new items."""
+
+    def __init__(self, is_folder: bool = True, default_name: str = ""):
+        super().__init__()
+        self.is_folder = is_folder
+        self.default_name = default_name
+        self.can_dismiss = False  # Prevent auto-dismissal
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Label(f"Create New {'Folder' if self.is_folder else 'File'}", id="new-item-title"),
+            Input(placeholder="Enter name and press Enter...", value=self.default_name, id="new-item-name"),
+            classes="new-item-container",
+        )
+
+    def on_mount(self) -> None:
+        """Focus the input when mounted."""
+        input_widget = self.query_one("#new-item-name", Input)
+        input_widget.focus()
+        self.notify("Modal mounted")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input."""
+        self.notify("Input submitted")
+        name = event.value.strip()
+        if name:
+            self.notify(f"Submitting name: {name}")
+            # Temporarily allow dismissal for our explicit submission
+            self.can_dismiss = True
+            self.dismiss((name, self.is_folder))
+        else:
+            self.notify("Please enter a name", severity="error")
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key events."""
+        # Only allow Enter (handled by on_input_submitted) and Escape
+        if event.key == "escape":
+            self.notify("Escape pressed - cancelling")
+            # Temporarily allow dismissal for explicit cancellation
+            self.can_dismiss = True
+            self.dismiss(None)
+        # Prevent any other keys from doing anything unexpected
+        event.prevent_default()
+        event.stop()
+
+    def on_click(self, event: events.Click) -> None:
+        """Prevent ANY clicks from dismissing the modal."""
+        event.prevent_default()
+        event.stop()
+
+    def on_screen_suspend(self) -> None:
+        """Prevent suspension from dismissing."""
+        pass
+
+    def on_screen_resume(self) -> None:
+        """Handle screen resume."""
+        self.notify("Modal resumed")
+        # Ensure we're still preventing dismissal after resume
+        self.can_dismiss = False
+
+    async def action_dismiss(self) -> None:
+        """Override dismiss action to prevent any other dismissal attempts."""
+        if not self.can_dismiss:
+            self.notify("Prevented auto-dismissal attempt")
+            return
+        await super().action_dismiss()
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Prevent mouse clicks from doing anything."""
+        event.prevent_default()
+        event.stop()
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Prevent mouse releases from doing anything."""
+        event.prevent_default()
+        event.stop()
+
 class ParaApp(App):
     """A Textual app to manage PARA system."""
     
@@ -328,6 +407,10 @@ class ParaApp(App):
     QuickSearchModal {
         align: center middle;
     }
+
+    NewItemModal {
+        align: center middle;
+    }
     
     .quick-search-container {
         background: $surface;
@@ -349,6 +432,29 @@ class ParaApp(App):
     #search-results {
         height: auto;
         max-height: 20;
+    }
+
+    .new-item-container {
+        background: $surface;
+        padding: 1 2;
+        border: tall $primary;
+        width: 40;
+        height: auto;
+    }
+
+    #new-item-title {
+        text-align: center;
+        padding-bottom: 1;
+    }
+
+    #new-item-name {
+        margin: 1 0;
+    }
+
+    #new-item-buttons {
+        width: 100%;
+        height: 3;
+        align: center middle;
     }
     """
     
@@ -545,7 +651,7 @@ class ParaApp(App):
         if not self.show_preview:
             return
 
-        details = self.query_one("#details")
+        details = self.query_one("#details", Static)
         
         if not path.exists():
             details.update(f"[red]Path does not exist: {path}[/]")
@@ -594,16 +700,109 @@ class ParaApp(App):
         """Show search modal."""
         self.push_screen(QuickSearchModal())
 
-    def action_new_item(self) -> None:
-        """Create new item dialog."""
-        # TODO: Implement new item dialog
-        self.notify("New item functionality coming soon!")
+    async def action_new_item(self) -> None:
+        """Create new item based on context."""
+        try:
+            if not self.current_path:
+                self.notify("Please select a location first", severity="error")
+                return
+
+            tree = self.query_one(Tree)
+            if not tree.cursor_node:
+                self.notify("No node selected", severity="error")
+                return
+
+            # Get the current node's label and clean it
+            label = str(tree.cursor_node.label)
+            if " (" in label:
+                label = label.split(" (")[0]
+            self.notify(f"Processing node: {label}")
+            
+            # Check if we're at a category level
+            is_category = False
+            category_name = None
+            
+            if label in CATEGORIES:
+                is_category = True
+                category_name = label
+                self.notify(f"Matched category exactly: {category_name}")
+            else:
+                clean_label = label.split(" ", 1)[1] if " " in label else label
+                for cat in CATEGORIES:
+                    clean_cat = cat.split(" ", 1)[1] if " " in cat else cat
+                    if clean_cat == clean_label:
+                        is_category = True
+                        category_name = cat
+                        self.notify(f"Found category in label: {category_name}")
+                        break
+            
+            if is_category and not category_name:
+                self.notify("Error: Could not determine category name", severity="error")
+                return
+                
+            should_create_folder = is_category
+            self.notify(f"Will create a {'folder' if should_create_folder else 'file'}")
+            
+            try:
+                modal = NewItemModal(is_folder=should_create_folder)
+                self.notify("Created modal instance")
+                result = await self.push_screen(modal)
+                self.notify(f"Got modal result: {result}")
+                
+                if result is not None:
+                    result_tuple = result if isinstance(result, tuple) else (str(result), True)
+                    name, is_folder = result_tuple
+                    self.notify(f"Creating item: {name} (folder: {is_folder})")
+                    
+                    try:
+                        if is_category and category_name:
+                            category_path = DEFAULT_PARA_ROOT / category_name
+                            self.notify(f"Using category path: {category_path}")
+                            
+                            if not category_path.exists():
+                                category_path.mkdir(parents=True, exist_ok=True)
+                            
+                            new_path = category_path / name
+                            self.notify(f"Creating at: {new_path}")
+                            new_path.mkdir(exist_ok=False)
+                            self.notify(f"Created folder: {new_path}")
+                            
+                            self.refresh_tree()
+                            self.select_path(new_path)
+                        else:
+                            parent_path = None
+                            if self.current_path and self.current_path.exists():
+                                parent_path = self.current_path if self.current_path.is_dir() else self.current_path.parent
+                            
+                            if not parent_path:
+                                self.notify("Error: Invalid parent directory", severity="error")
+                                return
+                                
+                            new_path = parent_path / name
+                            self.notify(f"Creating at: {new_path}")
+                            new_path.touch(exist_ok=False)
+                            self.notify(f"Created file: {new_path}")
+                            
+                            self.refresh_tree()
+                            self.select_path(new_path)
+                        
+                    except FileExistsError:
+                        self.notify(f"Error: {name} already exists", severity="error")
+                    except Exception as e:
+                        self.notify(f"Error creating {name}: {str(e)}", severity="error")
+                else:
+                    self.notify("Operation cancelled via Escape key")
+                    
+            except Exception as e:
+                self.notify(f"Modal error: {str(e)}", severity="error")
+            
+        except Exception as e:
+            self.notify(f"Unexpected error: {str(e)}", severity="error")
 
     def action_delete(self) -> None:
         """Delete selected item."""
         if self.current_path:
-            # TODO: Add confirmation dialog
-            self.notify(f"Delete functionality coming soon!")
+            self.notify("Delete functionality coming soon!")
 
     def action_move(self) -> None:
         """Move selected item."""

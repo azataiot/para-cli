@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "para-cli"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A command line tool for managing your PARA system"
 authors = [
     {name = "Azat", email = "azataiot@gmail.com"}  
